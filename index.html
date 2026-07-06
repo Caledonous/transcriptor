@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Transcriptor — 100% navigateur</title>
+<title>Transcriptor — réunions & interviews</title>
 <style>
   :root {
     --bg: #0f1115; --panel: #171a21; --border: #2a2e38;
@@ -16,10 +16,18 @@
     margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     background: var(--bg); color: var(--text); min-height: 100vh; padding: 32px 16px;
   }
-  .wrap { max-width: 800px; margin: 0 auto; }
+  .wrap { max-width: 820px; margin: 0 auto; }
   h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
-  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 24px; line-height:1.5; }
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .apikey-row { display: flex; gap: 8px; align-items: center; }
+  .apikey-row input { flex: 1; }
+  .apikey-status { font-size: 12px; margin-top: 6px; color: var(--muted); }
+  .apikey-status.ok { color: var(--ok); }
+  input[type=text], input[type=password] {
+    padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: #1e222b; color: var(--text); font-size: 14px;
+  }
   .dropzone { border: 2px dashed var(--border); border-radius: 10px; padding: 40px 20px; text-align: center; cursor: pointer; transition: border-color .15s; }
   .dropzone.dragover { border-color: var(--accent); background: rgba(91,140,255,0.05); }
   .dropzone p { margin: 0; color: var(--muted); font-size: 14px; }
@@ -36,8 +44,8 @@
   .status.active { display: block; }
   .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 8px; animation: pulse 1s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-  .progress-bar { width: 100%; height: 6px; background: #1e222b; border-radius: 3px; overflow: hidden; margin-top: 8px; }
-  .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width .2s; }
+  .error { color: var(--err); font-size: 13px; margin-top: 12px; display: none; }
+  .error.active { display: block; }
   .result { display: none; }
   .result.active { display: block; }
   .result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
@@ -47,53 +55,62 @@
   .toggle-view { display: flex; gap: 8px; margin-bottom: 12px; }
   .toggle-view button { width: auto; padding: 6px 12px; font-size: 12px; background: transparent; cursor: pointer; }
   .toggle-view button.active-view { background: var(--accent); border-color: var(--accent); }
-  .text-output { background: #12151b; border: 1px solid var(--border); border-radius: 8px; padding: 16px; max-height: 500px; overflow-y: auto; font-size: 14px; line-height: 1.7; white-space: pre-wrap; }
-  .segment { margin-bottom: 10px; }
-  .segment .ts { color: var(--accent); font-size: 12px; margin-right: 8px; font-variant-numeric: tabular-nums; }
-  .error { color: var(--err); font-size: 13px; margin-top: 12px; display: none; }
-  .error.active { display: block; }
+  .speaker-names { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .speaker-names .sp-field { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .speaker-names input { width: 120px; padding: 6px 8px; font-size: 12px; }
+  .text-output { background: #12151b; border: 1px solid var(--border); border-radius: 8px; padding: 16px; max-height: 550px; overflow-y: auto; font-size: 14px; line-height: 1.7; white-space: pre-wrap; }
+  .utterance { margin-bottom: 14px; }
+  .utterance .who { color: var(--accent); font-weight: 600; }
+  .utterance .ts { color: var(--muted); font-size: 12px; margin-left: 6px; font-variant-numeric: tabular-nums; }
   .note { font-size: 12px; color: var(--muted); margin-top: 20px; line-height: 1.6; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>🎙️ Transcriptor</h1>
-  <div class="subtitle">Transcription audio → texte, 100% dans le navigateur. Rien n'est envoyé sur un serveur — l'audio et le modèle tournent localement une fois chargés.</div>
+  <div class="subtitle">Transcription de réunions/interviews longs, avec séparation automatique des locuteurs. L'audio est envoyé à AssemblyAI pour traitement, puis supprimé de leurs serveurs une fois la transcription terminée.</div>
+
+  <div class="panel">
+    <label for="apiKey">Clé API AssemblyAI</label>
+    <div class="apikey-row">
+      <input type="password" id="apiKey" placeholder="Colle ta clé API ici">
+      <button id="toggleKeyBtn" style="width:auto;padding:10px 14px;">👁</button>
+    </div>
+    <div class="apikey-status" id="apiKeyStatus">Stockée uniquement dans ce navigateur (jamais envoyée ailleurs qu'à AssemblyAI). Récupère la tienne sur assemblyai.com (compte gratuit, 50$ de crédit offerts).</div>
+  </div>
 
   <div class="panel">
     <div class="dropzone" id="dropzone">
       <p>Glisse un fichier audio ici, ou clique pour en choisir un</p>
-      <p style="font-size:11px;margin-top:6px;">mp3, wav, m4a, ogg...</p>
+      <p style="font-size:11px;margin-top:6px;">mp3, wav, m4a... fichiers longs (1-2h) acceptés</p>
       <div class="filename" id="filename"></div>
     </div>
     <input type="file" id="fileInput" accept="audio/*">
 
     <div class="row">
       <div class="field">
-        <label for="modelSize">Modèle</label>
-        <select id="modelSize">
-          <option value="Xenova/whisper-tiny">tiny (très rapide, peu précis)</option>
-          <option value="Xenova/whisper-base">base</option>
-          <option value="Xenova/whisper-small" selected>small (recommandé)</option>
-          <option value="Xenova/whisper-medium">medium (précis, lourd ~800 Mo, plus lent)</option>
+        <label for="language">Langue</label>
+        <select id="language">
+          <option value="fr" selected>Français</option>
+          <option value="en">Anglais</option>
         </select>
       </div>
       <div class="field">
-        <label for="language">Langue</label>
-        <select id="language">
-          <option value="french" selected>Français</option>
-          <option value="english">Anglais</option>
+        <label for="expectedSpeakers">Nombre de locuteurs (si connu)</label>
+        <select id="expectedSpeakers">
           <option value="">Détection auto</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
         </select>
       </div>
     </div>
 
     <button class="primary" id="transcribeBtn" disabled>Transcrire</button>
 
-    <div class="status" id="status">
-      <span class="dot"></span><span id="statusText">Préparation...</span>
-      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-    </div>
+    <div class="status" id="status"><span class="dot"></span><span id="statusText">Envoi du fichier...</span></div>
     <div class="error" id="error"></div>
   </div>
 
@@ -106,35 +123,30 @@
       </div>
     </div>
     <div class="toggle-view">
-      <button id="viewPlain" class="active-view">Texte brut</button>
-      <button id="viewTimestamped">Avec horodatage</button>
+      <button id="viewPlain">Texte brut</button>
+      <button id="viewSpeakers" class="active-view">Par locuteur</button>
     </div>
+    <div class="speaker-names" id="speakerNames"></div>
     <div class="text-output" id="textOutput"></div>
   </div>
 
   <div class="note">
-    Le premier lancement sur un modèle donné télécharge ses poids depuis Hugging Face (quelques dizaines à quelques centaines de Mo selon la taille) et les met en cache dans le navigateur — les fois suivantes sont instantanées, même hors ligne. Si le téléchargement échoue ("failed to fetch"), le réseau du poste bloque probablement huggingface.co : il faudra alors passer par un poste avec un accès internet plus ouvert, au moins pour ce premier chargement.
+    Coût indicatif : environ 0,20-0,30 $ pour 1h30 d'audio avec séparation des locuteurs (facturé sur ton compte AssemblyAI, pay-as-you-go). Pour un fichier de 1-2h, compte quelques minutes de traitement côté serveur AssemblyAI (nettement plus rapide que la durée réelle de l'audio).
   </div>
 </div>
 
-<script type="module">
-import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
+<script>
+const API_KEY_STORAGE = 'transcriptor_assemblyai_key';
 
-env.allowLocalModels = false;
-
-let selectedFile = null;
-let transcriber = null;
-let currentModelId = null;
-let lastResult = null;
-let currentView = 'plain';
-
+const apiKeyInput = document.getElementById('apiKey');
+const toggleKeyBtn = document.getElementById('toggleKeyBtn');
+const apiKeyStatus = document.getElementById('apiKeyStatus');
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 const filenameEl = document.getElementById('filename');
 const transcribeBtn = document.getElementById('transcribeBtn');
 const statusEl = document.getElementById('status');
 const statusTextEl = document.getElementById('statusText');
-const progressFill = document.getElementById('progressFill');
 const errorEl = document.getElementById('error');
 const resultPanel = document.getElementById('resultPanel');
 const resultMeta = document.getElementById('resultMeta');
@@ -142,9 +154,29 @@ const textOutput = document.getElementById('textOutput');
 const copyBtn = document.getElementById('copyBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const viewPlainBtn = document.getElementById('viewPlain');
-const viewTimestampedBtn = document.getElementById('viewTimestamped');
-const modelSelect = document.getElementById('modelSize');
+const viewSpeakersBtn = document.getElementById('viewSpeakers');
+const speakerNamesEl = document.getElementById('speakerNames');
 
+let selectedFile = null;
+let lastTranscript = null; // full AssemblyAI transcript object
+let currentView = 'speakers';
+let speakerNameMap = {}; // {A: 'Justin', B: 'Aurélie'}
+
+// --- API key persistence (local only) ---
+const savedKey = localStorage.getItem(API_KEY_STORAGE);
+if (savedKey) {
+  apiKeyInput.value = savedKey;
+  apiKeyStatus.textContent = 'Clé chargée depuis ce navigateur.';
+  apiKeyStatus.classList.add('ok');
+}
+apiKeyInput.addEventListener('input', () => {
+  localStorage.setItem(API_KEY_STORAGE, apiKeyInput.value.trim());
+});
+toggleKeyBtn.addEventListener('click', () => {
+  apiKeyInput.type = apiKeyInput.type === 'password' ? 'text' : 'password';
+});
+
+// --- File selection ---
 dropzone.addEventListener('click', () => fileInput.click());
 dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
 dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
@@ -159,92 +191,89 @@ fileInput.addEventListener('change', (e) => {
 
 function setFile(file) {
   selectedFile = file;
-  filenameEl.textContent = file.name;
+  filenameEl.textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(1)} Mo)`;
   transcribeBtn.disabled = false;
   errorEl.classList.remove('active');
 }
 
-function formatTimestamp(seconds) {
-  if (seconds == null) return '--:--:--';
-  const total = Math.floor(seconds);
+function formatTimestampMs(ms) {
+  const total = Math.floor(ms / 1000);
   const h = String(Math.floor(total / 3600)).padStart(2, '0');
   const m = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
   const s = String(total % 60).padStart(2, '0');
   return `${h}:${m}:${s}`;
 }
 
-async function decodeAudioTo16kMono(file) {
-  const arrayBuffer = await file.arrayBuffer();
-  const tempCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const decoded = await tempCtx.decodeAudioData(arrayBuffer);
-  tempCtx.close();
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  const targetRate = 16000;
-  const offlineCtx = new OfflineAudioContext(1, Math.ceil(decoded.duration * targetRate), targetRate);
-  const source = offlineCtx.createBufferSource();
-  source.buffer = decoded;
+async function transcribeWithAssemblyAI(file, apiKey, languageCode, expectedSpeakers) {
+  // 1. Upload
+  statusTextEl.textContent = 'Envoi du fichier vers AssemblyAI...';
+  const uploadRes = await fetch('https://api.assemblyai.com/v2/upload', {
+    method: 'POST',
+    headers: { authorization: apiKey },
+    body: file,
+  });
+  if (!uploadRes.ok) throw new Error(`Échec de l'envoi (${uploadRes.status}). Vérifie ta clé API.`);
+  const { upload_url } = await uploadRes.json();
 
-  // Mixdown to mono if needed
-  if (decoded.numberOfChannels > 1) {
-    const merger = offlineCtx.createChannelMerger(1);
-    const gain = offlineCtx.createGain();
-    source.connect(gain);
-    gain.connect(offlineCtx.destination);
-  } else {
-    source.connect(offlineCtx.destination);
+  // 2. Create transcript job
+  statusTextEl.textContent = 'Démarrage de la transcription...';
+  const body = {
+    audio_url: upload_url,
+    speaker_labels: true,
+    language_code: languageCode,
+  };
+  if (expectedSpeakers) body.speakers_expected = parseInt(expectedSpeakers, 10);
+
+  const createRes = await fetch('https://api.assemblyai.com/v2/transcript', {
+    method: 'POST',
+    headers: { authorization: apiKey, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!createRes.ok) throw new Error(`Échec de la création de la tâche (${createRes.status})`);
+  const created = await createRes.json();
+
+  // 3. Poll
+  let transcript = created;
+  let pollCount = 0;
+  while (transcript.status !== 'completed' && transcript.status !== 'error') {
+    await sleep(4000);
+    pollCount++;
+    statusTextEl.textContent = `Transcription en cours (${transcript.status})... (${pollCount * 4}s écoulées)`;
+    const pollRes = await fetch(`https://api.assemblyai.com/v2/transcript/${created.id}`, {
+      headers: { authorization: apiKey },
+    });
+    transcript = await pollRes.json();
   }
-  source.start(0);
 
-  const rendered = await offlineCtx.startRendering();
-  return { data: rendered.getChannelData(0), duration: decoded.duration };
+  if (transcript.status === 'error') {
+    throw new Error(transcript.error || 'Erreur de transcription côté AssemblyAI');
+  }
+  return transcript;
 }
 
 transcribeBtn.addEventListener('click', async () => {
+  const apiKey = apiKeyInput.value.trim();
+  if (!apiKey) {
+    errorEl.textContent = 'Erreur : renseigne ta clé API AssemblyAI ci-dessus.';
+    errorEl.classList.add('active');
+    return;
+  }
   if (!selectedFile) return;
 
   transcribeBtn.disabled = true;
   statusEl.classList.add('active');
   errorEl.classList.remove('active');
   resultPanel.classList.remove('active');
-  progressFill.style.width = '0%';
 
   try {
-    const modelId = modelSelect.value;
-
-    if (!transcriber || currentModelId !== modelId) {
-      statusTextEl.textContent = 'Chargement du modèle (1ère fois seulement)...';
-      transcriber = await pipeline('automatic-speech-recognition', modelId, {
-        progress_callback: (p) => {
-          if (p.status === 'progress' && p.total) {
-            const pct = Math.round((p.loaded / p.total) * 100);
-            progressFill.style.width = pct + '%';
-            statusTextEl.textContent = `Téléchargement du modèle : ${p.file} (${pct}%)`;
-          } else if (p.status === 'ready') {
-            statusTextEl.textContent = 'Modèle prêt, décodage de l\'audio...';
-          }
-        }
-      });
-      currentModelId = modelId;
-    }
-
-    progressFill.style.width = '100%';
-    statusTextEl.textContent = 'Décodage de l\'audio...';
-    const { data: audioData, duration } = await decodeAudioTo16kMono(selectedFile);
-
-    statusTextEl.textContent = 'Transcription en cours...';
     const language = document.getElementById('language').value;
-    const options = {
-      chunk_length_s: 30,
-      stride_length_s: 5,
-      return_timestamps: true,
-      task: 'transcribe',
-    };
-    if (language) options.language = language;
-
-    const result = await transcriber(audioData, options);
-
-    lastResult = { text: result.text, chunks: result.chunks || [], duration };
-    renderResult(lastResult, modelId);
+    const expectedSpeakers = document.getElementById('expectedSpeakers').value;
+    const transcript = await transcribeWithAssemblyAI(selectedFile, apiKey, language, expectedSpeakers);
+    lastTranscript = transcript;
+    speakerNameMap = {};
+    renderResult(transcript);
   } catch (err) {
     console.error(err);
     errorEl.textContent = 'Erreur : ' + err.message;
@@ -255,26 +284,56 @@ transcribeBtn.addEventListener('click', async () => {
   }
 });
 
-function renderResult(result, modelId) {
-  const durationMin = (result.duration / 60).toFixed(1);
-  resultMeta.textContent = `Modèle : ${modelId.replace('Xenova/', '')} · Durée audio : ${durationMin} min`;
+function renderResult(transcript) {
+  const durationMin = transcript.audio_duration ? (transcript.audio_duration / 60).toFixed(1) : '?';
+  resultMeta.textContent = `Durée : ${durationMin} min · Locuteurs détectés : ${getSpeakerList(transcript).length}`;
   resultPanel.classList.add('active');
-  currentView = 'plain';
+  renderSpeakerNameInputs(transcript);
   updateViewButtons();
   renderText();
 }
 
+function getSpeakerList(transcript) {
+  const set = new Set();
+  (transcript.utterances || []).forEach(u => set.add(u.speaker));
+  return Array.from(set).sort();
+}
+
+function renderSpeakerNameInputs(transcript) {
+  speakerNamesEl.innerHTML = '';
+  getSpeakerList(transcript).forEach(sp => {
+    const wrap = document.createElement('div');
+    wrap.className = 'sp-field';
+    const lbl = document.createElement('span');
+    lbl.textContent = `Speaker ${sp} =`;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = `Speaker ${sp}`;
+    input.value = speakerNameMap[sp] || '';
+    input.addEventListener('input', () => {
+      speakerNameMap[sp] = input.value.trim();
+      renderText();
+    });
+    wrap.appendChild(lbl);
+    wrap.appendChild(input);
+    speakerNamesEl.appendChild(wrap);
+  });
+}
+
+function speakerDisplayName(sp) {
+  return speakerNameMap[sp] ? speakerNameMap[sp] : `Speaker ${sp}`;
+}
+
 function renderText() {
-  if (!lastResult) return;
+  if (!lastTranscript) return;
   if (currentView === 'plain') {
-    textOutput.textContent = lastResult.text;
+    textOutput.textContent = lastTranscript.text || '';
   } else {
     textOutput.innerHTML = '';
-    (lastResult.chunks || []).forEach(chunk => {
+    (lastTranscript.utterances || []).forEach(u => {
       const div = document.createElement('div');
-      div.className = 'segment';
-      const start = chunk.timestamp ? chunk.timestamp[0] : null;
-      div.innerHTML = `<span class="ts">[${formatTimestamp(start)}]</span>${chunk.text}`;
+      div.className = 'utterance';
+      div.innerHTML = `<span class="who">${speakerDisplayName(u.speaker)}</span><span class="ts">[${formatTimestampMs(u.start)}]</span><br>${u.text}`;
       textOutput.appendChild(div);
     });
   }
@@ -282,26 +341,27 @@ function renderText() {
 
 function updateViewButtons() {
   viewPlainBtn.classList.toggle('active-view', currentView === 'plain');
-  viewTimestampedBtn.classList.toggle('active-view', currentView === 'timestamped');
+  viewSpeakersBtn.classList.toggle('active-view', currentView === 'speakers');
 }
 
 viewPlainBtn.addEventListener('click', () => { currentView = 'plain'; updateViewButtons(); renderText(); });
-viewTimestampedBtn.addEventListener('click', () => { currentView = 'timestamped'; updateViewButtons(); renderText(); });
+viewSpeakersBtn.addEventListener('click', () => { currentView = 'speakers'; updateViewButtons(); renderText(); });
+
+function getExportText() {
+  if (currentView === 'plain') return lastTranscript.text || '';
+  return (lastTranscript.utterances || [])
+    .map(u => `[${formatTimestampMs(u.start)}] ${speakerDisplayName(u.speaker)} : ${u.text}`)
+    .join('\n\n');
+}
 
 copyBtn.addEventListener('click', () => {
-  const text = currentView === 'plain'
-    ? lastResult.text
-    : (lastResult.chunks || []).map(c => `[${formatTimestamp(c.timestamp ? c.timestamp[0] : null)}] ${c.text}`).join('\n');
-  navigator.clipboard.writeText(text);
+  navigator.clipboard.writeText(getExportText());
   copyBtn.textContent = 'Copié !';
   setTimeout(() => copyBtn.textContent = 'Copier', 1500);
 });
 
 downloadBtn.addEventListener('click', () => {
-  const text = currentView === 'plain'
-    ? lastResult.text
-    : (lastResult.chunks || []).map(c => `[${formatTimestamp(c.timestamp ? c.timestamp[0] : null)}] ${c.text}`).join('\n');
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const blob = new Blob([getExportText()], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
