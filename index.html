@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transcriptor — 100% navigateur</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --border: #2a2e38;
+    --text: #e6e8ee; --muted: #8a8f9c;
+    --accent: #5b8cff; --accent-hover: #6f9bff;
+    --ok: #3fbf7f; --err: #e05a5a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh; padding: 32px 16px;
+  }
+  .wrap { max-width: 800px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .dropzone { border: 2px dashed var(--border); border-radius: 10px; padding: 40px 20px; text-align: center; cursor: pointer; transition: border-color .15s; }
+  .dropzone.dragover { border-color: var(--accent); background: rgba(91,140,255,0.05); }
+  .dropzone p { margin: 0; color: var(--muted); font-size: 14px; }
+  .dropzone .filename { color: var(--text); font-weight: 600; margin-top: 8px; }
+  input[type=file] { display: none; }
+  .row { display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+  .field { flex: 1; min-width: 140px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  select, button { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: #1e222b; color: var(--text); font-size: 14px; }
+  button.primary { background: var(--accent); border: none; font-weight: 600; cursor: pointer; margin-top: 16px; }
+  button.primary:hover { background: var(--accent-hover); }
+  button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .status { font-size: 13px; color: var(--muted); margin-top: 12px; display: none; }
+  .status.active { display: block; }
+  .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 8px; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .progress-bar { width: 100%; height: 6px; background: #1e222b; border-radius: 3px; overflow: hidden; margin-top: 8px; }
+  .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width .2s; }
+  .result { display: none; }
+  .result.active { display: block; }
+  .result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+  .result-meta { font-size: 12px; color: var(--muted); }
+  .actions { display: flex; gap: 8px; }
+  .actions button { width: auto; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+  .toggle-view { display: flex; gap: 8px; margin-bottom: 12px; }
+  .toggle-view button { width: auto; padding: 6px 12px; font-size: 12px; background: transparent; cursor: pointer; }
+  .toggle-view button.active-view { background: var(--accent); border-color: var(--accent); }
+  .text-output { background: #12151b; border: 1px solid var(--border); border-radius: 8px; padding: 16px; max-height: 500px; overflow-y: auto; font-size: 14px; line-height: 1.7; white-space: pre-wrap; }
+  .segment { margin-bottom: 10px; }
+  .segment .ts { color: var(--accent); font-size: 12px; margin-right: 8px; font-variant-numeric: tabular-nums; }
+  .error { color: var(--err); font-size: 13px; margin-top: 12px; display: none; }
+  .error.active { display: block; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 20px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎙️ Transcriptor</h1>
+  <div class="subtitle">Transcription audio → texte, 100% dans le navigateur. Rien n'est envoyé sur un serveur — l'audio et le modèle tournent localement une fois chargés.</div>
+
+  <div class="panel">
+    <div class="dropzone" id="dropzone">
+      <p>Glisse un fichier audio ici, ou clique pour en choisir un</p>
+      <p style="font-size:11px;margin-top:6px;">mp3, wav, m4a, ogg...</p>
+      <div class="filename" id="filename"></div>
+    </div>
+    <input type="file" id="fileInput" accept="audio/*">
+
+    <div class="row">
+      <div class="field">
+        <label for="modelSize">Modèle</label>
+        <select id="modelSize">
+          <option value="Xenova/whisper-tiny">tiny (très rapide, peu précis)</option>
+          <option value="Xenova/whisper-base">base</option>
+          <option value="Xenova/whisper-small" selected>small (recommandé)</option>
+          <option value="Xenova/whisper-medium">medium (précis, lourd ~800 Mo, plus lent)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="language">Langue</label>
+        <select id="language">
+          <option value="french" selected>Français</option>
+          <option value="english">Anglais</option>
+          <option value="">Détection auto</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="primary" id="transcribeBtn" disabled>Transcrire</button>
+
+    <div class="status" id="status">
+      <span class="dot"></span><span id="statusText">Préparation...</span>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+    <div class="error" id="error"></div>
+  </div>
+
+  <div class="panel result" id="resultPanel">
+    <div class="result-header">
+      <div class="result-meta" id="resultMeta"></div>
+      <div class="actions">
+        <button id="copyBtn">Copier</button>
+        <button id="downloadBtn">Télécharger .txt</button>
+      </div>
+    </div>
+    <div class="toggle-view">
+      <button id="viewPlain" class="active-view">Texte brut</button>
+      <button id="viewTimestamped">Avec horodatage</button>
+    </div>
+    <div class="text-output" id="textOutput"></div>
+  </div>
+
+  <div class="note">
+    Le premier lancement sur un modèle donné télécharge ses poids depuis Hugging Face (quelques dizaines à quelques centaines de Mo selon la taille) et les met en cache dans le navigateur — les fois suivantes sont instantanées, même hors ligne. Si le téléchargement échoue ("failed to fetch"), le réseau du poste bloque probablement huggingface.co : il faudra alors passer par un poste avec un accès internet plus ouvert, au moins pour ce premier chargement.
+  </div>
+</div>
+
+<script type="module">
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
+
+env.allowLocalModels = false;
+
+let selectedFile = null;
+let transcriber = null;
+let currentModelId = null;
+let lastResult = null;
+let currentView = 'plain';
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const filenameEl = document.getElementById('filename');
+const transcribeBtn = document.getElementById('transcribeBtn');
+const statusEl = document.getElementById('status');
+const statusTextEl = document.getElementById('statusText');
+const progressFill = document.getElementById('progressFill');
+const errorEl = document.getElementById('error');
+const resultPanel = document.getElementById('resultPanel');
+const resultMeta = document.getElementById('resultMeta');
+const textOutput = document.getElementById('textOutput');
+const copyBtn = document.getElementById('copyBtn');
+const downloadBtn = document.getElementById('downloadBtn');
+const viewPlainBtn = document.getElementById('viewPlain');
+const viewTimestampedBtn = document.getElementById('viewTimestamped');
+const modelSelect = document.getElementById('modelSize');
+
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', (e) => {
+  if (e.target.files.length) setFile(e.target.files[0]);
+});
+
+function setFile(file) {
+  selectedFile = file;
+  filenameEl.textContent = file.name;
+  transcribeBtn.disabled = false;
+  errorEl.classList.remove('active');
+}
+
+function formatTimestamp(seconds) {
+  if (seconds == null) return '--:--:--';
+  const total = Math.floor(seconds);
+  const h = String(Math.floor(total / 3600)).padStart(2, '0');
+  const m = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
+  const s = String(total % 60).padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
+async function decodeAudioTo16kMono(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const tempCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const decoded = await tempCtx.decodeAudioData(arrayBuffer);
+  tempCtx.close();
+
+  const targetRate = 16000;
+  const offlineCtx = new OfflineAudioContext(1, Math.ceil(decoded.duration * targetRate), targetRate);
+  const source = offlineCtx.createBufferSource();
+  source.buffer = decoded;
+
+  // Mixdown to mono if needed
+  if (decoded.numberOfChannels > 1) {
+    const merger = offlineCtx.createChannelMerger(1);
+    const gain = offlineCtx.createGain();
+    source.connect(gain);
+    gain.connect(offlineCtx.destination);
+  } else {
+    source.connect(offlineCtx.destination);
+  }
+  source.start(0);
+
+  const rendered = await offlineCtx.startRendering();
+  return { data: rendered.getChannelData(0), duration: decoded.duration };
+}
+
+transcribeBtn.addEventListener('click', async () => {
+  if (!selectedFile) return;
+
+  transcribeBtn.disabled = true;
+  statusEl.classList.add('active');
+  errorEl.classList.remove('active');
+  resultPanel.classList.remove('active');
+  progressFill.style.width = '0%';
+
+  try {
+    const modelId = modelSelect.value;
+
+    if (!transcriber || currentModelId !== modelId) {
+      statusTextEl.textContent = 'Chargement du modèle (1ère fois seulement)...';
+      transcriber = await pipeline('automatic-speech-recognition', modelId, {
+        progress_callback: (p) => {
+          if (p.status === 'progress' && p.total) {
+            const pct = Math.round((p.loaded / p.total) * 100);
+            progressFill.style.width = pct + '%';
+            statusTextEl.textContent = `Téléchargement du modèle : ${p.file} (${pct}%)`;
+          } else if (p.status === 'ready') {
+            statusTextEl.textContent = 'Modèle prêt, décodage de l\'audio...';
+          }
+        }
+      });
+      currentModelId = modelId;
+    }
+
+    progressFill.style.width = '100%';
+    statusTextEl.textContent = 'Décodage de l\'audio...';
+    const { data: audioData, duration } = await decodeAudioTo16kMono(selectedFile);
+
+    statusTextEl.textContent = 'Transcription en cours...';
+    const language = document.getElementById('language').value;
+    const options = {
+      chunk_length_s: 30,
+      stride_length_s: 5,
+      return_timestamps: true,
+      task: 'transcribe',
+    };
+    if (language) options.language = language;
+
+    const result = await transcriber(audioData, options);
+
+    lastResult = { text: result.text, chunks: result.chunks || [], duration };
+    renderResult(lastResult, modelId);
+  } catch (err) {
+    console.error(err);
+    errorEl.textContent = 'Erreur : ' + err.message;
+    errorEl.classList.add('active');
+  } finally {
+    statusEl.classList.remove('active');
+    transcribeBtn.disabled = false;
+  }
+});
+
+function renderResult(result, modelId) {
+  const durationMin = (result.duration / 60).toFixed(1);
+  resultMeta.textContent = `Modèle : ${modelId.replace('Xenova/', '')} · Durée audio : ${durationMin} min`;
+  resultPanel.classList.add('active');
+  currentView = 'plain';
+  updateViewButtons();
+  renderText();
+}
+
+function renderText() {
+  if (!lastResult) return;
+  if (currentView === 'plain') {
+    textOutput.textContent = lastResult.text;
+  } else {
+    textOutput.innerHTML = '';
+    (lastResult.chunks || []).forEach(chunk => {
+      const div = document.createElement('div');
+      div.className = 'segment';
+      const start = chunk.timestamp ? chunk.timestamp[0] : null;
+      div.innerHTML = `<span class="ts">[${formatTimestamp(start)}]</span>${chunk.text}`;
+      textOutput.appendChild(div);
+    });
+  }
+}
+
+function updateViewButtons() {
+  viewPlainBtn.classList.toggle('active-view', currentView === 'plain');
+  viewTimestampedBtn.classList.toggle('active-view', currentView === 'timestamped');
+}
+
+viewPlainBtn.addEventListener('click', () => { currentView = 'plain'; updateViewButtons(); renderText(); });
+viewTimestampedBtn.addEventListener('click', () => { currentView = 'timestamped'; updateViewButtons(); renderText(); });
+
+copyBtn.addEventListener('click', () => {
+  const text = currentView === 'plain'
+    ? lastResult.text
+    : (lastResult.chunks || []).map(c => `[${formatTimestamp(c.timestamp ? c.timestamp[0] : null)}] ${c.text}`).join('\n');
+  navigator.clipboard.writeText(text);
+  copyBtn.textContent = 'Copié !';
+  setTimeout(() => copyBtn.textContent = 'Copier', 1500);
+});
+
+downloadBtn.addEventListener('click', () => {
+  const text = currentView === 'plain'
+    ? lastResult.text
+    : (lastResult.chunks || []).map(c => `[${formatTimestamp(c.timestamp ? c.timestamp[0] : null)}] ${c.text}`).join('\n');
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'transcription.txt';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+</script>
+</body>
+</html>
