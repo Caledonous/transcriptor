@@ -73,10 +73,11 @@
   <div class="panel">
     <label for="apiKey">Clé API AssemblyAI</label>
     <div class="apikey-row">
-      <input type="password" id="apiKey" placeholder="Colle ta clé API ici">
-      <button id="toggleKeyBtn" style="width:auto;padding:10px 14px;">👁</button>
+      <input type="password" id="apiKey" placeholder="Colle ta clé API ici" autocomplete="current-password">
+      <button id="toggleKeyBtn" style="width:auto;padding:10px 14px;" type="button">👁</button>
+      <button id="saveKeyBtn" style="width:auto;padding:10px 14px;" type="button">💾 Enregistrer</button>
     </div>
-    <div class="apikey-status" id="apiKeyStatus">Stockée uniquement dans ce navigateur (jamais envoyée ailleurs qu'à AssemblyAI). Récupère la tienne sur assemblyai.com (compte gratuit, 50$ de crédit offerts).</div>
+    <div class="apikey-status" id="apiKeyStatus">Récupère ta clé sur assemblyai.com (compte gratuit, 50$ de crédit offerts). Clique "Enregistrer" pour la stocker dans le gestionnaire de mots de passe du navigateur — elle survit alors même à un vidage du cache.</div>
   </div>
 
   <div class="panel">
@@ -137,9 +138,11 @@
 
 <script>
 const API_KEY_STORAGE = 'transcriptor_assemblyai_key';
+const CRED_ID = 'transcriptor-assemblyai-key';
 
 const apiKeyInput = document.getElementById('apiKey');
 const toggleKeyBtn = document.getElementById('toggleKeyBtn');
+const saveKeyBtn = document.getElementById('saveKeyBtn');
 const apiKeyStatus = document.getElementById('apiKeyStatus');
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
@@ -162,18 +165,60 @@ let lastTranscript = null; // full AssemblyAI transcript object
 let currentView = 'speakers';
 let speakerNameMap = {}; // {A: 'Justin', B: 'Aurélie'}
 
-// --- API key persistence (local only) ---
-const savedKey = localStorage.getItem(API_KEY_STORAGE);
-if (savedKey) {
-  apiKeyInput.value = savedKey;
-  apiKeyStatus.textContent = 'Clé chargée depuis ce navigateur.';
-  apiKeyStatus.classList.add('ok');
+// --- API key persistence ---
+// 1) Essai de récupération depuis le gestionnaire de mots de passe natif (survit au vidage de cache)
+// 2) Repli sur localStorage (pratique, mais effacé si on vide les données de site)
+async function loadSavedKey() {
+  if (window.PasswordCredential && navigator.credentials) {
+    try {
+      const cred = await navigator.credentials.get({ password: true, mediation: 'optional' });
+      if (cred && cred.password) {
+        apiKeyInput.value = cred.password;
+        apiKeyStatus.textContent = 'Clé récupérée depuis le gestionnaire de mots de passe du navigateur.';
+        apiKeyStatus.classList.add('ok');
+        return;
+      }
+    } catch (e) { /* API non disponible ou refusée, on continue */ }
+  }
+  const savedKey = localStorage.getItem(API_KEY_STORAGE);
+  if (savedKey) {
+    apiKeyInput.value = savedKey;
+    apiKeyStatus.textContent = 'Clé chargée depuis ce navigateur (localStorage).';
+    apiKeyStatus.classList.add('ok');
+  }
 }
+loadSavedKey();
+
 apiKeyInput.addEventListener('input', () => {
   localStorage.setItem(API_KEY_STORAGE, apiKeyInput.value.trim());
 });
+
 toggleKeyBtn.addEventListener('click', () => {
   apiKeyInput.type = apiKeyInput.type === 'password' ? 'text' : 'password';
+});
+
+saveKeyBtn.addEventListener('click', async () => {
+  const key = apiKeyInput.value.trim();
+  if (!key) return;
+  localStorage.setItem(API_KEY_STORAGE, key);
+
+  if (window.PasswordCredential && navigator.credentials) {
+    try {
+      const cred = new PasswordCredential({
+        id: CRED_ID,
+        password: key,
+        name: 'Clé API AssemblyAI (Transcriptor)',
+      });
+      await navigator.credentials.store(cred);
+      apiKeyStatus.textContent = 'Clé enregistrée dans le gestionnaire de mots de passe du navigateur.';
+      apiKeyStatus.classList.add('ok');
+      return;
+    } catch (e) {
+      console.warn('Credential Management API indisponible :', e);
+    }
+  }
+  apiKeyStatus.textContent = "Enregistrée dans ce navigateur (gestionnaire de mots de passe non disponible sur ce navigateur — utilise Chrome ou Edge pour cette fonctionnalité).";
+  apiKeyStatus.classList.add('ok');
 });
 
 // --- File selection ---
